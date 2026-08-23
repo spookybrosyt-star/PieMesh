@@ -68,10 +68,45 @@ For remote operator access use an SSH tunnel:
 python agent.py --server <hub-hostname> --token <enrollment-token>
 ```
 
-- First run shows consent terms; type `AGREE` or pass `--agree-tos 2026-08-v3`
+- First run shows consent terms; type `AGREE` or pass `--agree-tos 2026-08-v4`
 - Hard limits baked in: 300 s per test, 200 req/s, 64 connections
-- Closing the window stops everything. Nothing installs, nothing persists.
+- A tray icon appears near the clock: node status, **Pause load generation**,
+  per-node load limit, **Start with Windows**, and **Exit**
+- Closing the window (or tray **Exit**) stops the running node instantly
 - `python agent.py --revoke-consent` wipes identity + consent records
+
+### Start with Windows (optional autostart)
+
+Autostart is **off by default** and opt-in. Enable it two ways:
+
+```bash
+# from the tray: toggle "Start with Windows"
+# or from the CLI (server + token required, then it exits):
+python agent.py --server <hub> --token <enrollment-token> --install-autostart
+```
+
+Once enabled, the agent launches on every boot — **your machine
+rejoins the mesh and contributes load-testing capacity automatically
+at startup, without prompting again.** What that means concretely:
+
+- It registers under `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
+  (key `PiemeshAgent`) and starts via `pythonw.exe` — **no console
+  window**, but the **tray icon still shows** so the node is never hidden
+- It reuses your recorded consent for the same terms version; it does
+  **not** re-prompt on each boot. If `agent.py` was modified since you
+  consented, it refuses to start until you re-run with
+  `--trust-modified-build`
+- Exiting or closing only stops the *current* session — it will start
+  again on the next boot until you turn autostart off
+
+Turn it off with the tray **Start with Windows** toggle, or:
+
+```bash
+python agent.py --uninstall-autostart
+```
+
+Autostart persists load generation across reboots — enable it only on
+a machine you own and want contributing to the mesh unattended.
 
 Distribute `agent.py`, `certs/ca.crt`, and this repo's LICENSE +
 ACCEPTABLE_USE.md to volunteers. The agent reads no config on their
@@ -96,7 +131,8 @@ Licensed for **authorized security testing only** — see
 | Join to use | Test capability is earned by participation; there is no read-only tier. Dispatching a test requires YOUR agent online on the machine you're dispatching from |
 | Verified targets only | Agents execute workloads solely against domains proven via DNS TXT challenge — never arbitrary targets |
 | Limits travel with you | 300 s per test, 200 req/s, 64 connections — compiled into the agent, impossible to raise remotely |
-| Leaving is instant | Close the window to stop; `--revoke-consent` wipes identity and consent records |
+| Leaving is instant | Close the window or hit tray **Exit** to stop the running node; `--revoke-consent` wipes identity and consent records |
+| Autostart is opt-in | Off by default. If you enable **Start with Windows**, the node rejoins the mesh on every boot until you turn it off (`--uninstall-autostart`) |
 | Everything is logged | Every task your node runs is recorded locally and in the hub's `audit.log` |
 
 Joining does **not** expose your machine to other members. Nodes

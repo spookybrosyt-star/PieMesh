@@ -26,7 +26,12 @@ every member's tests require verified targets.
 
 ## Volunteer protections and duties
 - Resource caps are compiled into your agent and cannot be raised remotely
-- Closing the window stops all activity instantly
+- Closing the window (or tray **Exit**) stops the running node instantly
+- **Start with Windows** is opt-in and off by default. If you enable it,
+  the node rejoins the mesh and resumes contributing load-testing capacity
+  on every boot — without re-prompting — until you disable it via the tray
+  toggle or `python agent.py --uninstall-autostart`. Enable it only on a
+  machine you own and intend to keep in the mesh unattended
 - `python agent.py --revoke-consent` wipes your identity and consent records
 - You are responsible for the accuracy of your consent and for the machine you enroll
 
