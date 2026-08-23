@@ -3,6 +3,7 @@
   "heartbeat_interval_sec": 5,
   "operator_port": 4443,
   "operator_bind": "127.0.0.1",
+  "operator_token": "CHANGE-ME-operator-secret",
   "enrollment_token": "CHANGE-ME-before-first-run",
   "max_test_duration_s": 300,
   "max_test_rps": 200,

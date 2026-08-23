@@ -12,7 +12,12 @@ from urllib.parse import urlparse
 import dns.resolver
 
 here = Path(__file__).parent
-cfg = json.loads((here / "config.json").read_text())
+_local = here / "config.local.json"
+cfg = (
+    json.loads(_local.read_text())
+    if _local.exists()
+    else json.loads((here / "config.json").read_text())
+)
 agents = {}
 tests = {}
 results = deque(maxlen=500)
@@ -80,7 +85,18 @@ def clamp_test(duration, rps):
     )
 
 
-def do_cmd(line):
+MEMBER_ALLOWED = {"agents", "target", "test", "tests", "results", "help"}
+
+HELP_MEMBER = """member commands:
+  agents                          mesh roster (ids only)
+  target add <domain>             register + mint dns challenge
+  target verify <domain>          check the txt record
+  test <domain> <url> <secs> [rps]  dispatch a verified test
+  tests / results [n]             history
+  quit                            leave the shell"""
+
+
+def do_cmd(line, role="operator"):
     parts = line.split()
     if not parts:
         return True, ""
@@ -90,18 +106,26 @@ def do_cmd(line):
     if c == "quit":
         return False, "bye"
 
+    if role == "member" and c not in MEMBER_ALLOWED:
+        return True, "members can't run '%s' - 'help' lists member commands" % c
+
     if c == "help":
-        return True, HELP
+        return True, HELP_MEMBER if role == "member" else HELP
 
     if c == "agents":
         if not agents:
             return True, "nobody online"
         rows = []
         for aid, r in agents.items():
-            rows.append(
-                "  %-14s %-22s %-18s seen %s ago"
-                % (aid, r["host"], r["os"], age(r["seen"]))
-            )
+            if role == "member":
+                rows.append(
+                    "  %-14s %-18s seen %s ago" % (aid, r["os"], age(r["seen"]))
+                )
+            else:
+                rows.append(
+                    "  %-14s %-22s %-18s seen %s ago"
+                    % (aid, r["host"], r["os"], age(r["seen"]))
+                )
         return True, "\n".join(rows)
 
     if c == "target":
@@ -362,33 +386,45 @@ async def op_conn(reader, writer):
     def send(t):
         writer.write((t.replace("\n", "\r\n") + "\r\n").encode())
 
-    send("piemesh operator shell\ntoken: ")
+    send("piemesh shell\ntoken: ")
     await writer.drain()
 
-    ok = False
+    role = None
+    op_secret = str(cfg.get("operator_token", ""))
     for attempt in range(3):
         try:
             raw = await asyncio.wait_for(readline_any(reader), 45)
         except (asyncio.TimeoutError, ConnectionResetError):
             break
-        if hmac.compare_digest(
-            raw.decode(errors="replace").strip(), cfg["enrollment_token"]
+        supplied = raw.decode(errors="replace").strip()
+        if hmac.compare_digest(supplied, op_secret) or (
+            op_secret.startswith("CHANGE-ME")
+            and hmac.compare_digest(supplied, cfg["enrollment_token"])
         ):
-            ok = True
+            role = "operator"
+        elif hmac.compare_digest(supplied, cfg["enrollment_token"]):
+            role = "member"
+        if role:
             break
         log("op_auth_failed", peer=str(peer), attempt=attempt + 1)
         send("denied\ntoken: ")
         await writer.drain()
 
-    if not ok:
+    if not role:
         log("op_locked_out", peer=str(peer))
         send("locked out")
         writer.close()
         return
 
-    log("op_connected", peer=str(peer))
-    print("[+] operator from %s:%s" % (peer[0], peer[1]))
-    send("ok. 'help' lists commands.\n> ")
+    log("op_connected", peer=str(peer), role=role)
+    print("[+] %s from %s:%s" % (role, peer[0], peer[1]))
+    send(
+        (
+            "operator session. 'help' lists commands.\n> "
+            if role == "operator"
+            else "member session. contribute an agent, run verified tests. 'help' lists commands.\n> "
+        )
+    )
     await writer.drain()
 
     try:
@@ -400,8 +436,8 @@ async def op_conn(reader, writer):
             if not raw:
                 break
             line = raw.decode(errors="replace").strip()
-            keep, out = do_cmd(line)
-            log("op_command", peer=str(peer), command=line[:200])
+            keep, out = do_cmd(line, role)
+            log("op_command", peer=str(peer), role=role, command=line[:200])
             if out:
                 send(out)
             if not keep:
@@ -409,8 +445,8 @@ async def op_conn(reader, writer):
             send("> ")
             await writer.drain()
     finally:
-        log("op_disconnected", peer=str(peer))
-        print("[-] operator left")
+        log("op_disconnected", peer=str(peer), role=role)
+        print("[-] %s left" % role)
         writer.close()
 
 
@@ -421,7 +457,7 @@ async def local_console(loop):
         except EOFError:
             await asyncio.sleep(3600)
             continue
-        keep, out = do_cmd(line)
+        keep, out = do_cmd(line, "operator")
         if out:
             print(out)
         if not keep:

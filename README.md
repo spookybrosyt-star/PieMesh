@@ -8,9 +8,10 @@ through a DNS TXT ownership challenge, the same mechanism used by
 ACME/Let's Encrypt. Nothing ships until the hub can prove who owns
 what's being tested.
 
-**Reciprocal by design:** to dispatch tests through a hub, your
-machine joins the mesh as a contributing agent. Contribute capacity,
-earn test capability — and every test, yours included, still requires
+**Reciprocal by design — no spectators:** everyone who runs PieMesh
+runs an agent. There is no download-and-watch tier: the tool IS the
+mesh, so having it means being part of it. Contribute capacity, earn
+test capability — and every test, yours included, still requires
 verified ownership of the target.
 
 ## Why it's different
@@ -41,7 +42,14 @@ python gencert.py                 # generates certs/ (never commit these)
 python server.py                  # agents :4444 TLS 1.3 | operator shell :4443
 ```
 
-Operator console (local or via KiTTY/PuTTY raw to port 4443):
+Operator console (local or via KiTTY/PuTTY raw to port 4443).
+Two token roles:
+
+- `operator_token` — full control: agents, targets, tests, kick, shell
+- `enrollment_token` — the public join token: members connect to the same shell and may run target/test/results commands only. Every member must also be running an agent node.
+
+If `operator_token` is left as its CHANGE-ME placeholder, the hub runs
+in solo mode (join token = operator). Set it before inviting members.
 
 ```
 agents                          online agents
@@ -84,8 +92,9 @@ Licensed for **authorized security testing only** — see
 
 | Rule | Meaning |
 |---|---|
-| Join to use | Dispatching tests through a hub requires your machine enrolled as a contributing agent |
-| Verified targets only | Agents execute workloads solely against domains the hub operator proved via DNS TXT challenge — never arbitrary targets |
+| Everyone is an agent | Every person running PieMesh contributes a node — testers, members, even hub operators on their own deployments |
+| Join to use | Test capability is earned by participation; there is no read-only tier |
+| Verified targets only | Agents execute workloads solely against domains proven via DNS TXT challenge — never arbitrary targets |
 | Limits travel with you | 300 s per test, 200 req/s, 64 connections — compiled into the agent, impossible to raise remotely |
 | Leaving is instant | Close the window to stop; `--revoke-consent` wipes identity and consent records |
 | Everything is logged | Every task your node runs is recorded locally and in the hub's `audit.log` |
