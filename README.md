@@ -78,7 +78,7 @@ Licensed for **authorized security testing only** — see
 - Unauthorized load generation voids the license automatically
 - Provided AS-IS with no warranty; liability limited to the maximum extent permitted by law
 
-**Abuse contact:** terrenzmo@outlook.com
+**Abuse contact:** spookybrosyt@gmail.com
 
 ## How membership works
 
