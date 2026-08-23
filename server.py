@@ -117,14 +117,15 @@ def do_cmd(line, role="operator"):
             return True, "nobody online"
         rows = []
         for aid, r in agents.items():
+            flag = " MODIFIED" if r.get("modified") else ""
             if role == "member":
                 rows.append(
-                    "  %-14s %-18s seen %s ago" % (aid, r["os"], age(r["seen"]))
+                    "  %-14s %-18s seen %s ago%s" % (aid, r["os"], age(r["seen"]), flag)
                 )
             else:
                 rows.append(
-                    "  %-14s %-22s %-18s seen %s ago"
-                    % (aid, r["host"], r["os"], age(r["seen"]))
+                    "  %-14s %-22s %-18s seen %s ago [%s]%s"
+                    % (aid, r["host"], r["os"], age(r["seen"]), r["hash"], flag)
                 )
         return True, "\n".join(rows)
 
@@ -318,6 +319,8 @@ async def agent_conn(reader, writer):
         return
 
     aid = str(hello.get("id"))[:64]
+    code_hash = str(hello.get("code_hash", ""))[:64]
+    modified = bool(hello.get("modified"))
     agents[aid] = {
         "writer": writer,
         "host": hello.get("hostname", "?"),
@@ -325,9 +328,18 @@ async def agent_conn(reader, writer):
         "since": time.time(),
         "seen": time.time(),
         "outbox": [],
+        "hash": code_hash[:12],
+        "modified": modified,
     }
-    log("agent_connected", agent=aid, hostname=hello.get("hostname"))
-    print("[+] agent %s (%s) from %s" % (aid, hello.get("hostname"), peer[0]))
+    log(
+        "agent_connected",
+        agent=aid,
+        hostname=hello.get("hostname"),
+        code_hash=code_hash[:16],
+        modified=modified,
+    )
+    tag = " MODIFIED-BUILD" if modified else ""
+    print("[+] agent %s (%s) from %s%s" % (aid, hello.get("hostname"), peer[0], tag))
     writer.write(b'{"type":"welcome"}\n')
     await writer.drain()
 

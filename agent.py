@@ -1,13 +1,13 @@
 import argparse
 import asyncio
 import csv
+import hashlib
 import io
 import inspect
 import json
 import platform
 import socket
 import ssl
-import subprocess
 import sys
 import time
 import uuid
@@ -23,8 +23,9 @@ MAX_SECS = min(int(cfg.get("max_test_duration_s", 300)), 600)
 MAX_RPS = min(int(cfg.get("max_test_rps", 200)), 500)
 MAX_CONNS = 64
 UA = "Piemesh-loadgen/1.0"
+ALLOWED_KINDS = {"sysinfo", "ps", "loadgen"}
 
-TOS_VER = "2026-08-v3"
+TOS_VER = "2026-08-v4"
 TOS = """PIEMESH VOLUNTEER AGENT TERMS (v%s)
 1. own this machine or have its admin's blessing, no exceptions
 2. while running you generate http(s) requests ONLY against domains
@@ -34,12 +35,21 @@ TOS = """PIEMESH VOLUNTEER AGENT TERMS (v%s)
 4. closing this window stops everything instantly. nothing installs,
    nothing survives a reboot, nothing runs hidden
 5. every task executed here is logged locally and on the hub
-6. you agree to cover the copyright holder and your hub operator for
+6. this build executes NO arbitrary commands - task types are
+   hard-whitelisted (sysinfo, process list, capped http loadgen)
+   and any other instruction from anyone is refused on the spot
+7. the agent fingerprints its own source at start. a modified copy
+   announces itself to you and to the hub before doing anything
+8. you agree to cover the copyright holder and your hub operator for
    claims coming from your use or misuse. the operator owns target
    verification and owes every volunteer honest enforcement
-7. abuse contact lives in your operator's README. full terms ship
+9. abuse contact lives in your operator's README. full terms ship
    next to this file as LICENSE + ACCEPTABLE_USE.md
 type AGREE to accept, anything else declines"""
+
+
+def self_hash():
+    return hashlib.sha256((here / "agent.py").read_bytes()).hexdigest()
 
 
 def agent_id():
@@ -67,6 +77,15 @@ def ensure_consent(opts):
     if marker.exists():
         rec = json.loads(marker.read_text())
         if rec.get("tos") == TOS_VER:
+            if rec.get("build") != self_hash() and not opts.trust_modified_build:
+                print(
+                    "[!] this agent.py differs from the build you consented to\n"
+                    "    consented: %s\n    current:   %s\n"
+                    "    if you made or received this modification knowingly, re-run\n"
+                    "    with --trust-modified-build (it will be reported to the hub)"
+                    % (rec.get("build", "?")[:16], self_hash()[:16])
+                )
+                sys.exit(2)
             return
 
     print(TOS % (TOS_VER, MAX_SECS, MAX_RPS, MAX_CONNS))
@@ -81,6 +100,7 @@ def ensure_consent(opts):
         json.dumps(
             {
                 "tos": TOS_VER,
+                "build": self_hash(),
                 "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "host": socket.gethostname(),
             },
@@ -165,28 +185,8 @@ def t_ps(args):
 
 
 def t_shell(args):
-    cmd = args.get("cmd", "")
-    timeout = min(int(args.get("timeout", 60)), 300)
-    started = time.time()
-    try:
-        proc = subprocess.run(
-            cmd,
-            shell=True,
-            capture_output=True,
-            text=True,
-            errors="replace",
-            timeout=timeout,
-        )
-        return {
-            "exit": proc.returncode,
-            "took_s": round(time.time() - started, 2),
-            "stdout": proc.stdout[-20000:],
-            "stderr": proc.stderr[-8000:],
-        }
-    except subprocess.TimeoutExpired:
-        return {"exit": None, "timed_out_after_s": timeout}
-    except OSError as exc:
-        return {"exit": None, "os_error": str(exc)}
+    print("[!] refused shell task - not a capability of this build")
+    return {"refused": "arbitrary command execution is not part of piemesh agents"}
 
 
 async def t_loadgen(args):
@@ -254,13 +254,18 @@ async def t_loadgen(args):
     }
 
 
-HANDLERS = {"sysinfo": t_sysinfo, "ps": t_ps, "shell": t_shell, "loadgen": t_loadgen}
+HANDLERS = {"sysinfo": t_sysinfo, "ps": t_ps, "loadgen": t_loadgen, "shell": t_shell}
 
 
 async def execute(task):
-    fn = HANDLERS.get(task.get("kind"))
-    if not fn:
-        return {"ok": False, "data": {"error": "unknown kind " + str(task.get("kind"))}}
+    kind = str(task.get("kind"))
+    if kind not in ALLOWED_KINDS:
+        print("[!] refused task kind '%s' - outside hard whitelist" % kind)
+        return {
+            "ok": False,
+            "data": {"refused": kind, "reason": "kind outside agent whitelist"},
+        }
+    fn = HANDLERS[kind]
     try:
         res = fn(task.get("args", {}))
         if inspect.isawaitable(res):
@@ -279,12 +284,20 @@ async def session(opts):
     tls.minimum_version = ssl.TLSVersion.TLSv1_3
 
     reader, writer = await asyncio.open_connection(opts.server, opts.port, ssl=tls)
+    consented_build = None
+    try:
+        consented_build = json.loads((here / "consent.json").read_text()).get("build")
+    except FileNotFoundError:
+        pass
+    build_now = self_hash()
     hello = {
         "type": "hello",
         "id": opts.agent_id,
         "hostname": socket.gethostname().lower(),
         "os": "%s %s" % (platform.system(), platform.release()),
         "token": opts.token,
+        "code_hash": build_now,
+        "modified": bool(consented_build and consented_build != build_now),
     }
     writer.write((json.dumps(hello) + "\n").encode())
     await writer.drain()
@@ -329,6 +342,11 @@ async def main():
     )
     ap.add_argument(
         "--revoke-consent", action="store_true", help="wipe consent + identity, exit"
+    )
+    ap.add_argument(
+        "--trust-modified-build",
+        action="store_true",
+        help="acknowledge agent.py differs from consented build; deviation is reported to hub",
     )
     opts = ap.parse_args()
 
