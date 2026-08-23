@@ -271,9 +271,10 @@ async def execute(task):
 
 
 async def session(opts):
-    tls = ssl.create_default_context(
-        ssl.Purpose.SERVER_AUTH, cafile=str(here / "ca.crt")
-    )
+    capath = here / "ca.crt"
+    if not capath.exists():
+        capath = here / "certs" / "ca.crt"
+    tls = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=str(capath))
     tls.check_hostname = True
     tls.minimum_version = ssl.TLSVersion.TLSv1_3
 

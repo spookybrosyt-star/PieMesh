@@ -416,7 +416,11 @@ async def op_conn(reader, writer):
 
 async def local_console(loop):
     while True:
-        line = await loop.run_in_executor(None, input)
+        try:
+            line = await loop.run_in_executor(None, input)
+        except EOFError:
+            await asyncio.sleep(3600)
+            continue
         keep, out = do_cmd(line)
         if out:
             print(out)
