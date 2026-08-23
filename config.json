@@ -1,0 +1,11 @@
+{
+  "listen_port": 4444,
+  "heartbeat_interval_sec": 5,
+  "operator_port": 4443,
+  "operator_bind": "127.0.0.1",
+  "enrollment_token": "CHANGE-ME-before-first-run",
+  "max_test_duration_s": 300,
+  "max_test_rps": 200,
+  "max_agents_per_test": 10,
+  "verification_valid_days": 30
+}

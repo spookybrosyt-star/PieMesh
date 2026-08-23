@@ -1,0 +1,15 @@
+# runtime state
+certs/
+*.log
+targets.json
+agent_id.json
+consent.json
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# local overrides
+config.local.json

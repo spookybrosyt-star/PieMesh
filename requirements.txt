@@ -1,0 +1,4 @@
+cryptography>=42.0
+psutil>=5.9
+dnspython>=2.6
+aiohttp>=3.9

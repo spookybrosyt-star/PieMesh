@@ -1,0 +1,52 @@
+PIEMESH PUBLIC LICENSE
+Version 1.0, August 2026
+Copyright (c) 2026 terrenz monyok
+
+1. GRANT
+Permission is granted, free of charge, to use, copy, modify, merge,
+publish, and distribute this software and its documentation, subject
+to ALL conditions below.
+
+2. AUTHORIZED USE ONLY
+Use is permitted EXCLUSIVELY for generating network load against
+systems you own, operate, or have PRIOR WRITTEN AUTHORIZATION to
+test. Every deployment MUST retain: (a) DNS-based target ownership
+verification, (b) local resource caps, (c) audit logging. Removing
+or bypassing any of the three voids this license immediately and
+automatically, without notice.
+
+3. TERMINATION
+This license terminates automatically upon any breach of Section 2.
+Upon termination, all use, modification, and distribution rights end.
+Distributions received before termination may continue operating
+under the same conditions.
+
+4. OPERATOR RESPONSIBILITY
+Any party operating a hub instance ("Operator") bears sole
+responsibility for verifying target ownership on their deployment,
+vetting their agents, retaining audit logs for no less than 90 days,
+and responding to abuse reports within 72 hours.
+
+5. INDEMNIFICATION
+By using this software you agree to indemnify, defend, and hold
+harmless the copyright holder(s) from any claims, damages, losses,
+liabilities, and expenses (including legal fees) arising from your
+use or misuse of the software, including any use against systems you
+were not authorized to test.
+
+6. WARRANTY DISCLAIMER
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT.
+
+7. LIMITATION OF LIABILITY
+IN NO EVENT SHALL THE COPYRIGHT HOLDER(S) BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT
+OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR ITS USE, TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE
+LAW.
+
+8. NOTICES
+All distributions must include this license unmodified and preserve
+attribution in source and binary forms.
