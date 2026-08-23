@@ -41,7 +41,9 @@ _tty = None
 def _color_on():
     global _tty
     if _tty is None:
-        if sys.stdout.isatty():
+        if sys.stdout is None:
+            _tty = False
+        elif sys.stdout.isatty():
             os.system("")
             _tty = True
         else:

@@ -5,11 +5,13 @@ import hashlib
 import io
 import inspect
 import json
+import os
 import platform
 import socket
 import ssl
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -28,15 +30,68 @@ MAX_CONNS = 64
 UA = "Piemesh-loadgen/1.0"
 ALLOWED_KINDS = {"sysinfo", "ps", "loadgen"}
 
+if sys.stdout is None:
+    sys.stdout = open(here / "agent.log", "a", buffering=1)
+    sys.stderr = sys.stdout
+
+PRESETS = {
+    "low": {"rps": 25, "secs": 60, "conns": 16},
+    "medium": {"rps": 100, "secs": 120, "conns": 32},
+    "full": {"rps": MAX_RPS, "secs": MAX_SECS, "conns": MAX_CONNS},
+}
+
+PAUSED = False
+LINKED = False
+
+
+def load_caps():
+    f = here / "agent_settings.json"
+    caps = dict(PRESETS["medium"])
+    try:
+        saved = json.loads(f.read_text())
+        caps["rps"] = int(saved.get("rps", caps["rps"]))
+        caps["secs"] = int(saved.get("secs", caps["secs"]))
+        caps["conns"] = int(saved.get("conns", caps["conns"]))
+        caps["preset"] = str(saved.get("preset", "custom"))
+    except Exception:
+        caps["preset"] = "medium"
+    caps["rps"] = max(1, min(caps["rps"], MAX_RPS))
+    caps["secs"] = max(5, min(caps["secs"], MAX_SECS))
+    caps["conns"] = max(1, min(caps["conns"], MAX_CONNS))
+    return caps
+
+
+CAPS = load_caps()
+
+
+def save_caps():
+    (here / "agent_settings.json").write_text(json.dumps(CAPS, indent=2))
+
+
+def current_limit_name():
+    for name, p in PRESETS.items():
+        if (
+            CAPS["rps"] == p["rps"]
+            and CAPS["secs"] == p["secs"]
+            and CAPS["conns"] == p["conns"]
+        ):
+            return name
+    return "custom"
+
+
 TOS_VER = "2026-08-v4"
 TOS = """PIEMESH VOLUNTEER AGENT TERMS (v%s)
 1. own this machine or have its admin's blessing, no exceptions
 2. while running you generate http(s) requests ONLY against domains
    the hub operator proved ownership of via dns txt challenge
-3. hard limits baked into this file, not remotely changeable:
-   %d seconds per test, %d requests/sec, %d connections
-4. closing this window stops everything instantly. nothing installs,
-   nothing survives a reboot, nothing runs hidden
+3. hard ceilings baked into this file: %d seconds per test,
+   %d requests/sec, %d connections. you may dial your personal
+   limit anywhere BELOW the ceiling from the tray menu; nothing
+   can raise any limit above the ceiling remotely
+4. closing this program stops everything instantly. nothing installs
+   beyond what you approve (optional start-with-windows toggle),
+   nothing survives a reboot unless you enabled that toggle,
+   nothing runs hidden
 5. every task executed here is logged locally and on the hub
 6. this build executes NO arbitrary commands - task types are
    hard-whitelisted (sysinfo, process list, capped http loadgen)
@@ -113,6 +168,46 @@ def ensure_consent(opts):
     print("consent recorded ->", marker)
 
 
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+APP_KEY = "PiemeshAgent"
+
+
+def autostart_on():
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
+            winreg.QueryValueEx(k, APP_KEY)
+        return True
+    except Exception:
+        return False
+
+
+def set_autostart(enabled, opts=None):
+    import winreg
+
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
+        if not enabled:
+            try:
+                winreg.DeleteValue(k, APP_KEY)
+            except FileNotFoundError:
+                pass
+            return
+        pythonw = sys.executable.replace("python.exe", "pythonw.exe")
+        parts = ['"%s" "%s"' % (pythonw, str(Path(__file__).resolve()))]
+        if opts:
+            parts += [
+                "--server",
+                opts.server,
+                "--port",
+                str(opts.port),
+                "--token",
+                opts.token,
+            ]
+        parts += ["--agree-tos", TOS_VER]
+        winreg.SetValueEx(k, APP_KEY, 0, winreg.REG_SZ, " ".join(parts))
+
+
 def t_sysinfo(args):
     info = {
         "hostname": socket.gethostname(),
@@ -187,17 +282,13 @@ def t_ps(args):
     return rows
 
 
-def t_shell(args):
-    ui.warn("refused shell task - not a capability of this build")
-    return {"refused": "arbitrary command execution is not part of piemesh agents"}
-
-
 async def t_loadgen(args):
     import aiohttp
 
     url = str(args.get("url", ""))
-    duration = min(float(args.get("duration_s", 60)), float(MAX_SECS))
-    rate = min(float(args.get("rate_rps", 25)), float(MAX_RPS))
+    duration = min(float(args.get("duration_s", 60)), float(CAPS["secs"]))
+    rate = min(float(args.get("rate_rps", 25)), float(CAPS["rps"]))
+    conns = int(CAPS["conns"])
 
     if not url.startswith(("http://", "https://")):
         return {"error": "refusing non-http workload"}
@@ -205,7 +296,7 @@ async def t_loadgen(args):
     stats = {"sent": 0, "ok": 0, "err": 0, "bytes": 0}
     lats = []
     deadline = time.monotonic() + duration
-    gate = asyncio.Semaphore(MAX_CONNS)
+    gate = asyncio.Semaphore(conns)
 
     async def hammer(sess):
         while time.monotonic() < deadline:
@@ -230,10 +321,10 @@ async def t_loadgen(args):
                     stats["err"] += 1
 
     async with aiohttp.ClientSession(
-        connector=aiohttp.TCPConnector(limit=MAX_CONNS),
+        connector=aiohttp.TCPConnector(limit=conns),
         headers={"User-Agent": UA},
     ) as sess:
-        workers = max(1, min(int(rate) // 4 or 1, MAX_CONNS))
+        workers = max(1, min(int(rate) // 4 or 1, conns))
         await asyncio.gather(*(hammer(sess) for _ in range(workers)))
 
     lats.sort()
@@ -257,7 +348,7 @@ async def t_loadgen(args):
     }
 
 
-HANDLERS = {"sysinfo": t_sysinfo, "ps": t_ps, "loadgen": t_loadgen, "shell": t_shell}
+HANDLERS = {"sysinfo": t_sysinfo, "ps": t_ps, "loadgen": t_loadgen}
 
 
 async def execute(task):
@@ -268,6 +359,9 @@ async def execute(task):
             "ok": False,
             "data": {"refused": kind, "reason": "kind outside agent whitelist"},
         }
+    if kind == "loadgen" and PAUSED:
+        ui.warn("loadgen skipped - load generation is paused")
+        return {"ok": False, "data": {"skipped": "load generation paused by user"}}
     fn = HANDLERS[kind]
     try:
         res = fn(task.get("args", {}))
@@ -279,6 +373,7 @@ async def execute(task):
 
 
 async def session(opts):
+    global LINKED
     capath = here / "ca.crt"
     if not capath.exists():
         capath = here / "certs" / "ca.crt"
@@ -308,6 +403,7 @@ async def session(opts):
     ack = json.loads(await asyncio.wait_for(reader.readline(), 15))
     if ack.get("type") != "welcome":
         raise PermissionError("handshake rejected")
+    LINKED = True
     ui.ok("linked to %s:%d as %s" % (opts.server, opts.port, opts.agent_id))
 
     while True:
@@ -334,8 +430,26 @@ async def session(opts):
         await asyncio.sleep(opts.interval)
 
 
-async def main():
-    ap = argparse.ArgumentParser(description="piemesh volunteer agent")
+async def async_main(opts):
+    opts.agent_id = agent_id()
+    backoff = 1.0
+    while True:
+        try:
+            await session(opts)
+            LINKED = False
+            backoff = 1.0
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:
+            LINKED = False
+            wait = round(backoff)
+            ui.warn("link down (%s), retry in %ds" % (exc, wait))
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 30)
+
+
+def build_parser():
+    ap = argparse.ArgumentParser(description="piemesh volunteer node")
     ap.add_argument("--server", help="hub hostname, must match its cert")
     ap.add_argument("--port", type=int, default=4444)
     ap.add_argument("--token")
@@ -349,18 +463,46 @@ async def main():
     ap.add_argument(
         "--trust-modified-build",
         action="store_true",
-        help="acknowledge agent.py differs from consented build; deviation is reported to hub",
+        help="acknowledge agent.py differs from consented build",
     )
+    ap.add_argument(
+        "--no-tray", action="store_true", help="run console-only, no tray icon"
+    )
+    ap.add_argument(
+        "--install-autostart",
+        action="store_true",
+        help="register start-with-windows (needs --server/--token) then exit",
+    )
+    ap.add_argument(
+        "--uninstall-autostart",
+        action="store_true",
+        help="remove start-with-windows registration then exit",
+    )
+    return ap
+
+
+def main_entry():
+    ap = build_parser()
     opts = ap.parse_args()
 
+    if opts.uninstall_autostart:
+        set_autostart(False)
+        print("start-with-windows removed")
+        return
+
     ensure_consent(opts)
+
+    if opts.install_autostart:
+        if not opts.server or not opts.token:
+            ap.error("--server and --token required for autostart")
+        set_autostart(True, opts)
+        print("registered: PieMesh starts when Windows does")
+        return
 
     if not opts.server or not opts.token:
         ap.error("--server and --token are required")
 
     opts.agent_id = agent_id()
-
-    import ui
 
     ui.banner(
         "PieMesh volunteer node",
@@ -368,27 +510,64 @@ async def main():
             ("identity", opts.agent_id),
             ("build", self_hash()[:16]),
             ("hub", "%s:%d" % (opts.server, opts.port)),
-            ("caps", "%ds/test, %d rps, %d conns" % (MAX_SECS, MAX_RPS, MAX_CONNS)),
+            (
+                "caps",
+                "%ds/test, %d rps, %d conns (%s)"
+                % (CAPS["secs"], CAPS["rps"], CAPS["conns"], current_limit_name()),
+            ),
+            ("tray", "running - check the arrow near your clock"),
         ],
     )
-    ui.info("close this window to leave the mesh instantly")
+    ui.info("close this window or hit Exit in the tray menu to leave the mesh")
 
-    backoff = 1.0
-    while True:
+    tray_ok = False
+    if not opts.no_tray:
         try:
-            await session(opts)
-            backoff = 1.0
-        except KeyboardInterrupt:
-            raise
+            import tray
+
+            ctx = {
+                "id": lambda: opts.agent_id,
+                "status": lambda: (
+                    "paused"
+                    if PAUSED
+                    else ("linked - ready" if LINKED else "connecting...")
+                ),
+                "is_paused": lambda: PAUSED,
+                "toggle_pause": lambda: globals().__setitem__("PAUSED", not PAUSED),
+                "limits": lambda: {k: v["rps"] for k, v in PRESETS.items()},
+                "current_limit": current_limit_name,
+                "set_limit": apply_limit,
+                "autostart_on": autostart_on,
+                "toggle_autostart": lambda: set_autostart(not autostart_on(), opts),
+                "exit": lambda: (
+                    ui.info("exit requested from tray"),
+                    tray.bye(),
+                    os._exit(0),
+                ),
+            }
+
+            def apply_limit(name):
+                CAPS.update(PRESETS[name])
+                CAPS["preset"] = name
+                save_caps()
+                ui.ok("load limit set to '%s' (%d rps)" % (name, CAPS["rps"]))
+
+            tray.launch(ctx)
+            tray_ok = True
         except Exception as exc:
-            wait = round(backoff)
-            ui.warn("link down (%s), retry in %ds" % (exc, wait))
-            await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, 30)
+            ui.warn("tray unavailable (%s) - running console-only" % exc)
+
+    runner = lambda: asyncio.run(async_main(opts))
+    if tray_ok:
+        threading.Thread(target=runner, daemon=True).start()
+        while True:
+            time.sleep(3600)
+    else:
+        try:
+            runner()
+        except KeyboardInterrupt:
+            print("\nstopped clean")
 
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\nstopped clean - nothing left running")
+    main_entry()
