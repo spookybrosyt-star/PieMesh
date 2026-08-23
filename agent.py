@@ -8,10 +8,13 @@ import json
 import platform
 import socket
 import ssl
+import subprocess
 import sys
 import time
 import uuid
 from pathlib import Path
+
+import ui
 
 here = Path(__file__).parent
 try:
@@ -185,7 +188,7 @@ def t_ps(args):
 
 
 def t_shell(args):
-    print("[!] refused shell task - not a capability of this build")
+    ui.warn("refused shell task - not a capability of this build")
     return {"refused": "arbitrary command execution is not part of piemesh agents"}
 
 
@@ -260,7 +263,7 @@ HANDLERS = {"sysinfo": t_sysinfo, "ps": t_ps, "loadgen": t_loadgen, "shell": t_s
 async def execute(task):
     kind = str(task.get("kind"))
     if kind not in ALLOWED_KINDS:
-        print("[!] refused task kind '%s' - outside hard whitelist" % kind)
+        ui.warn("refused task kind '%s' - outside hard whitelist" % kind)
         return {
             "ok": False,
             "data": {"refused": kind, "reason": "kind outside agent whitelist"},
@@ -305,7 +308,7 @@ async def session(opts):
     ack = json.loads(await asyncio.wait_for(reader.readline(), 15))
     if ack.get("type") != "welcome":
         raise PermissionError("handshake rejected")
-    print("[+] linked to %s:%d as %s" % (opts.server, opts.port, opts.agent_id))
+    ui.ok("linked to %s:%d as %s" % (opts.server, opts.port, opts.agent_id))
 
     while True:
         writer.write(b'{"type":"heartbeat"}\n')
@@ -357,6 +360,19 @@ async def main():
 
     opts.agent_id = agent_id()
 
+    import ui
+
+    ui.banner(
+        "PieMesh volunteer node",
+        [
+            ("identity", opts.agent_id),
+            ("build", self_hash()[:16]),
+            ("hub", "%s:%d" % (opts.server, opts.port)),
+            ("caps", "%ds/test, %d rps, %d conns" % (MAX_SECS, MAX_RPS, MAX_CONNS)),
+        ],
+    )
+    ui.info("close this window to leave the mesh instantly")
+
     backoff = 1.0
     while True:
         try:
@@ -366,7 +382,7 @@ async def main():
             raise
         except Exception as exc:
             wait = round(backoff)
-            print("[!] link down (%s), retry in %ds" % (exc, wait))
+            ui.warn("link down (%s), retry in %ds" % (exc, wait))
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 30)
 

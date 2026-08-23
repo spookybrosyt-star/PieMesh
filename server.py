@@ -11,6 +11,8 @@ from urllib.parse import urlparse
 
 import dns.resolver
 
+import ui
+
 here = Path(__file__).parent
 _local = here / "config.local.json"
 cfg = (
@@ -349,7 +351,10 @@ async def agent_conn(reader, writer):
         modified=modified,
     )
     tag = " MODIFIED-BUILD" if modified else ""
-    print("[+] agent %s (%s) from %s%s" % (aid, hello.get("hostname"), peer[0], tag))
+    ui.ok(
+        "agent %s (%s) from %s%s"
+        % (aid, hello.get("hostname"), peer[0], ui.paint(tag, ui.RED))
+    )
     writer.write(b'{"type":"welcome"}\n')
     await writer.drain()
 
@@ -388,20 +393,18 @@ async def agent_conn(reader, writer):
                         if tests[tid]["done"] >= tests[tid]["expected"]:
                             tests[tid]["status"] = "complete"
                             log("test_completed", test_id=tid)
-                print(
-                    "[res] %s %s %s"
-                    % (
-                        entry["agent"],
-                        entry["task_id"],
-                        json.dumps(entry["data"])[:300],
-                    )
+                ui.res(
+                    entry["agent"],
+                    entry["task_id"],
+                    json.dumps(entry["data"])[:300],
+                    ok=entry["ok"],
                 )
     except (ConnectionResetError, asyncio.IncompleteReadError):
         pass
     finally:
         agents.pop(aid, None)
         log("agent_disconnected", agent=aid)
-        print("[-] agent " + aid + " gone")
+        ui.info("agent " + aid + " gone")
 
 
 async def op_conn(reader, writer):
@@ -441,7 +444,7 @@ async def op_conn(reader, writer):
         return
 
     log("op_connected", peer=str(peer), role=role)
-    print("[+] %s from %s:%s" % (role, peer[0], peer[1]))
+    ui.ok("%s session from %s:%s" % (role, peer[0], peer[1]))
     send(
         (
             "operator session. 'help' lists commands.\n> "
@@ -470,14 +473,14 @@ async def op_conn(reader, writer):
             await writer.drain()
     finally:
         log("op_disconnected", peer=str(peer), role=role)
-        print("[-] %s left" % role)
+        ui.info("%s left" % role)
         writer.close()
 
 
 async def local_console(loop):
     while True:
         try:
-            line = await loop.run_in_executor(None, input)
+            line = await loop.run_in_executor(None, input, ui.prompt())
         except EOFError:
             await asyncio.sleep(3600)
             continue
@@ -488,6 +491,7 @@ async def local_console(loop):
             for r in agents.values():
                 r["writer"].close()
             log("server_shutdown")
+            ui.warn("hub shut down - audit trail in audit.log")
             loop.stop()
             return
 
@@ -507,12 +511,35 @@ async def main():
         op_conn, cfg.get("operator_bind", "127.0.0.1"), cfg.get("operator_port", 4443)
     )
 
+    solo = str(cfg.get("operator_token", "")).startswith("CHANGE-ME")
+    ui.banner(
+        "PieMesh hub",
+        [
+            ("agents port", ":%d (TLS 1.3)" % cfg["listen_port"]),
+            (
+                "shell port",
+                ":%s on %s"
+                % (
+                    cfg.get("operator_port", 4443),
+                    cfg.get("operator_bind", "127.0.0.1"),
+                ),
+            ),
+            ("mode", "solo (join token = operator)" if solo else "member mesh"),
+            (
+                "caps",
+                "%ds/test, %d rps, %d nodes/test"
+                % (
+                    cfg.get("max_test_duration_s", 300),
+                    cfg.get("max_test_rps", 200),
+                    cfg.get("max_agents_per_test", 10),
+                ),
+            ),
+            ("audit trail", "audit.log"),
+        ],
+    )
+    ui.info("'help' lists commands")
     loop = asyncio.get_running_loop()
     log("server_start", port=cfg["listen_port"])
-    print(
-        "piemesh hub up - agents :%d (tls) ops :%d"
-        % (cfg["listen_port"], cfg.get("operator_port", 4443))
-    )
     asyncio.create_task(local_console(loop))
     async with ap, op:
         await asyncio.gather(ap.serve_forever(), op.serve_forever())
