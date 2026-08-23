@@ -5,6 +5,10 @@ Anyone who owns the machine they install the agent on, and who uses
 the mesh exclusively against targets whose ownership has been proven
 via DNS TXT challenge on their hub.
 
+Participation is reciprocal: members contribute an agent node to earn
+test capability through their hub. Contributing earns capability, not
+exemption - every member's tests require verified targets.
+
 ## Prohibited
 - Load generation against any system without verified ownership or written authorization
 - Removing, patching, or bypassing DNS verification, resource caps, or audit logging

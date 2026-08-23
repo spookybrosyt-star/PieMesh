@@ -8,6 +8,11 @@ through a DNS TXT ownership challenge, the same mechanism used by
 ACME/Let's Encrypt. Nothing ships until the hub can prove who owns
 what's being tested.
 
+**Reciprocal by design:** to dispatch tests through a hub, your
+machine joins the mesh as a contributing agent. Contribute capacity,
+earn test capability — and every test, yours included, still requires
+verified ownership of the target.
+
 ## Why it's different
 
 | Typical tooling | PieMesh |
@@ -74,6 +79,30 @@ Licensed for **authorized security testing only** — see
 - Provided AS-IS with no warranty; liability limited to the maximum extent permitted by law
 
 **Abuse contact:** terrenzmo@outlook.com
+
+## How membership works
+
+| Rule | Meaning |
+|---|---|
+| Join to use | Dispatching tests through a hub requires your machine enrolled as a contributing agent |
+| Verified targets only | Agents execute workloads solely against domains the hub operator proved via DNS TXT challenge — never arbitrary targets |
+| Limits travel with you | 300 s per test, 200 req/s, 64 connections — compiled into the agent, impossible to raise remotely |
+| Leaving is instant | Close the window to stop; `--revoke-consent` wipes identity and consent records |
+| Everything is logged | Every task your node runs is recorded locally and in the hub's `audit.log` |
+
+Joining does **not** expose your machine to other members. Nodes
+receive only workloads dispatched by their own hub, and only for
+domains whose ownership was verified on that hub.
+
+## Authorized testing only
+
+Every test requires proven ownership of the target domain before a
+single request is dispatched. Using PieMesh against systems you do
+not own or lack prior written authorization to test voids the license
+(see [LICENSE](./LICENSE) §2) and violates
+[ACCEPTABLE_USE.md](./ACCEPTABLE_USE.md). This applies to every
+member equally — contributing capacity earns you capability, never
+exemption.
 
 ## Status
 
