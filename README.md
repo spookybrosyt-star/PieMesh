@@ -93,7 +93,7 @@ Licensed for **authorized security testing only** — see
 | Rule | Meaning |
 |---|---|
 | Everyone is an agent | Every person running PieMesh contributes a node — testers, members, even hub operators on their own deployments |
-| Join to use | Test capability is earned by participation; there is no read-only tier |
+| Join to use | Test capability is earned by participation; there is no read-only tier. Dispatching a test requires YOUR agent online on the machine you're dispatching from |
 | Verified targets only | Agents execute workloads solely against domains proven via DNS TXT challenge — never arbitrary targets |
 | Limits travel with you | 300 s per test, 200 req/s, 64 connections — compiled into the agent, impossible to raise remotely |
 | Leaving is instant | Close the window to stop; `--revoke-consent` wipes identity and consent records |

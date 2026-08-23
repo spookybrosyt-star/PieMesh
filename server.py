@@ -92,11 +92,12 @@ HELP_MEMBER = """member commands:
   target add <domain>             register + mint dns challenge
   target verify <domain>          check the txt record
   test <domain> <url> <secs> [rps]  dispatch a verified test
+                                  (requires YOUR agent online on this machine)
   tests / results [n]             history
   quit                            leave the shell"""
 
 
-def do_cmd(line, role="operator"):
+def do_cmd(line, role="operator", ip=""):
     parts = line.split()
     if not parts:
         return True, ""
@@ -204,6 +205,14 @@ def do_cmd(line, role="operator"):
         host = u.hostname or ""
         if host != dom and not host.endswith("." + dom):
             return True, "url host %s isn't under %s" % (host, dom)
+
+        if role == "member":
+            contributing = any(r.get("ip") == ip for r in agents.values())
+            if not contributing:
+                return True, (
+                    "participation required: your machine has no agent online - "
+                    "start agent.py on this machine before dispatching tests"
+                )
 
         rec = targets().get(dom)
         if not rec or not rec.get("expires") or rec["expires"] <= time.time():
@@ -330,6 +339,7 @@ async def agent_conn(reader, writer):
         "outbox": [],
         "hash": code_hash[:12],
         "modified": modified,
+        "ip": peer[0],
     }
     log(
         "agent_connected",
@@ -450,7 +460,7 @@ async def op_conn(reader, writer):
             if not raw:
                 break
             line = raw.decode(errors="replace").strip()
-            keep, out = do_cmd(line, role)
+            keep, out = do_cmd(line, role, peer[0])
             log("op_command", peer=str(peer), role=role, command=line[:200])
             if out:
                 send(out)
@@ -471,7 +481,7 @@ async def local_console(loop):
         except EOFError:
             await asyncio.sleep(3600)
             continue
-        keep, out = do_cmd(line, "operator")
+        keep, out = do_cmd(line, "operator", "127.0.0.1")
         if out:
             print(out)
         if not keep:
