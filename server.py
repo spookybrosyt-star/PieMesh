@@ -177,6 +177,8 @@ def do_cmd(line, role="operator"):
             return True, "txt record didn't match for " + dom
 
         if sub == "remove":
+            if role == "member":
+                return True, "target removal is operator-only"
             if t.pop(dom, None) is None:
                 return True, "unknown domain " + dom
             save_targets(t)
